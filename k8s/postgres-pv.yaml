@@ -1,0 +1,38 @@
+#Create persistent storage
+#This YAML creates two Kubernetes resources:
+#A PersistentVolume (PV) — actual storage available to Kubernetes.
+#A PersistentVolumeClaim (PVC) — a request from PostgreSQL asking Kubernetes for storage.
+#PV is Kubernetes' abstraction for storage. Without persistent storage, a database running inside a container can lose its data when the container/Pod is replaced.
+#ReadWriteOnce means:The volume can be mounted as read-write by workloads on one node at a time.
+#persistentVolumeReclaimPolicy: Retain --> This controls what happens to the PV's data when its PVC is deleted.
+#storageClassName: This is used to match the PV with the PVC. 
+#If the names don't match: like (PV: manual PVC: standard) Kubernetes won't bind these two together.
+
+apiVersion: v1
+kind: PersistentVolume
+metadata: 
+  name: postgres-pv
+spec:
+  capacity:
+    storage: 10Gi
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: manual
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    type: DirectoryOrCreate
+    path: /data/postgres
+
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+spec:
+  storageClassName: manual
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

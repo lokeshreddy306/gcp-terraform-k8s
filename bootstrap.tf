@@ -85,36 +85,6 @@ resource "terraform_data" "kubeadm_init" {
 }
 
 /*
-#Configuring kubernetes config file
-resource "terraform_data" "kubectl_config" {
-  depends_on = [terraform_data.kubeadm_init]
-
-  provisioner "local-exec" {
-    interpreter = ["bash", "-c"]
-
-    command = <<-EOF
-      set -e
-
-      echo "Configuring Kubectl.."
-
-      gcloud compute ssh k8s-control-plane \
-        --zone=${var.zone} \
-        --command='
-          sudo mkdir -p "/home/${var.ssh_username}/.kube" && \
-          sudo cp -f /etc/kubernetes/admin.conf "/home/${var.ssh_username}/.kube/config" && \
-          sudo chown -R ${var.ssh_username}:${var.ssh_username} "/home/${var.ssh_username}/.kube/" && \
-          sudo chmod 700 "/home/${var.ssh_username}/.kube"
-          sudo chmod 600 "/home/${var.ssh_username}/.kube/config"
-        '
-    #This makes your current Linux user the owner of the configuration file.
-    #Also, because $HOME and $(id -u) need to be evaluated on the control-plane VM, use single quotes around the remote comman
-    #kubectl looks for its configuration by default at:~/.kube/config
-    echo "kubectl configured for ${var.ssh_username}"
-    EOF
-  }
-}
-*/
-
 resource "terraform_data" "kubectl_config" {
 
   depends_on = [
@@ -137,7 +107,18 @@ resource "terraform_data" "kubectl_config" {
         --command='
           if [ -f "/home/${var.ssh_username}/.kube/config" ]; then
             echo "kubectl configuration already exists."
-            echo "Skipping configuration."
+            echo "Make sure the directory and config belong to SSH User"
+            sudo chown -R ${var.ssh_username}:${var.ssh_username} \
+              "/home/${var.ssh_username}/.kube"
+
+            sudo chmod 700 \
+              "/home/${var.ssh_username}/.kube"
+
+            sudo chmod 600 \
+              "/home/${var.ssh_username}/.kube/config"
+            
+            echo "kubectl permissions verified."
+
           else
             echo "Creating kubectl configuration..."
 
@@ -146,8 +127,8 @@ resource "terraform_data" "kubectl_config" {
             sudo cp /etc/kubernetes/admin.conf \
               "/home/${var.ssh_username}/.kube/config"
 
-            sudo chown ${var.ssh_username}:${var.ssh_username} \
-              "/home/${var.ssh_username}/.kube/config"
+            sudo chown -R ${var.ssh_username}:${var.ssh_username} \
+              "/home/${var.ssh_username}/.kube"
 
             sudo chmod 700 \
               "/home/${var.ssh_username}/.kube"
@@ -161,25 +142,209 @@ resource "terraform_data" "kubectl_config" {
     EOT
   }
 }
-/*
-#Installing Calico
-resource "terraform_data" "install-calico-CNI" {
-  depends_on = [terraform_data.kubectl_config]
+*/
+
+# ---------------------------------------------------------
+# Configure kubectl
+#
+# This resource does two things:
+#
+# 1. Creates/configures kubectl on the control-plane VM.
+#
+# 2. Copies the Kubernetes admin.conf to the Windows
+#    machine where Terraform is running.
+#
+# The Windows kubeconfig will later communicate with the
+# Kubernetes API server through an SSH tunnel.
+# ---------------------------------------------------------
+
+resource "terraform_data" "kubectl_config" {
+
+  depends_on = [
+    terraform_data.kubeadm_init
+  ]
+
   provisioner "local-exec" {
-    interpreter = ["bash", "-c"]
-    command     = <<-EOT
-    set -e
-    echo "installing Calico CNI"
-    gcloud compute ssh k8s-control-plane \
-    --zone=${var.zone} \
-    --command='sudo kubectl --kubeconfig="/home/${var.ssh_username}/.kube/config" apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.32.2/manifests/calico.yaml'
-    #Download this Kubernetes manifest and ask the Kubernetes API server to create/update all the objects described in it
-    #Calico's v3.32.2 release includes components such as calico/node, calico/cni, and calico/kube-controllers
-    echo "Calico manifest applied"
+
+    # Terraform is running on Windows.
+    # We use Git Bash because the rest of this bootstrap.tf
+    # already uses Git Bash for shell commands.
+
+    interpreter = ["C:\\Program Files\\Git\\bin\\bash.exe", "-c"]
+
+    command = <<-EOT
+
+      set -e
+
+      echo "=============================================="
+      echo " Configuring Kubernetes kubectl"
+      echo "=============================================="
+
+      # ---------------------------------------------------
+      # STEP 1
+      # Configure kubectl on the control-plane VM
+      # ---------------------------------------------------
+
+      echo ""
+      echo "Checking kubectl configuration on control plane..."
+
+      gcloud compute ssh k8s-control-plane \
+        --zone=${var.zone} \
+        --quiet \
+        --command='
+          if [ -f "/home/${var.ssh_username}/.kube/config" ]; then
+
+            echo "kubectl configuration already exists."
+
+            sudo chown -R ${var.ssh_username}:${var.ssh_username} \
+              "/home/${var.ssh_username}/.kube"
+
+            sudo chmod 700 \
+              "/home/${var.ssh_username}/.kube"
+
+            sudo chmod 600 \
+              "/home/${var.ssh_username}/.kube/config"
+
+          else
+
+            echo "Creating kubectl configuration..."
+
+            sudo mkdir -p \
+              "/home/${var.ssh_username}/.kube"
+
+            sudo cp \
+              /etc/kubernetes/admin.conf \
+              "/home/${var.ssh_username}/.kube/config"
+
+            sudo chown -R \
+              ${var.ssh_username}:${var.ssh_username} \
+              "/home/${var.ssh_username}/.kube"
+
+            sudo chmod 700 \
+              "/home/${var.ssh_username}/.kube"
+
+            sudo chmod 600 \
+              "/home/${var.ssh_username}/.kube/config"
+
+          fi
+
+          echo "Control-plane kubectl configuration completed."
+        '
+
+
+      # ---------------------------------------------------
+      # STEP 2
+      # Create Windows .kube directory
+      # ---------------------------------------------------
+
+      echo ""
+      echo "Creating Windows .kube directory..."
+
+      mkdir -p "$HOME/.kube"
+
+
+      # ---------------------------------------------------
+      # STEP 3
+      # Copy admin.conf from the control plane
+      #
+      # We use sudo cat remotely because /etc/kubernetes/
+      # admin.conf is normally readable only by root.
+      # ---------------------------------------------------
+
+      echo ""
+      echo "Copying Kubernetes admin.conf to Windows..."
+
+      gcloud compute ssh k8s-control-plane \
+        --zone=${var.zone} \
+        --quiet \
+        --command="sudo cat /etc/kubernetes/admin.conf" \
+        > "$HOME/.kube/config"
+
+
+      # ---------------------------------------------------
+      # STEP 4
+      # Configure the Windows kubeconfig to use the SSH
+      # tunnel.
+      #
+      # The real Kubernetes API server is:
+      #
+      # https://10.10.0.3:6443
+      #
+      # Windows will connect through:
+      #
+      # https://127.0.0.1:6443
+      #
+      # Therefore we replace the server address.
+      # ---------------------------------------------------
+
+      echo ""
+      echo "Configuring Windows API server address..."
+
+      CONTROL_PLANE_IP="${google_compute_instance.k8s-control-plane.network_interface[0].network_ip}"
+
+      sed -i \
+        "s#server: https://$CONTROL_PLANE_IP:6443#server: https://127.0.0.1:6443#g" \
+        "$HOME/.kube/config"
+
+
+      # ---------------------------------------------------
+      # STEP 5
+      # Tell kubectl to verify the Kubernetes TLS
+      # certificate against the control-plane IP.
+      #
+      # This is necessary because kubectl connects to
+      # 127.0.0.1 but the kubeadm certificate normally
+      # contains the control-plane IP.
+      # ---------------------------------------------------
+
+      echo ""
+      echo "Configuring TLS server name..."
+
+      sed -i \
+        "/server: https:\/\/127.0.0.1:6443/a\\    tls-server-name: $CONTROL_PLANE_IP" \
+        "$HOME/.kube/config"
+
+
+      # ---------------------------------------------------
+      # STEP 6
+      # Set the kubeconfig permissions.
+      # ---------------------------------------------------
+
+      chmod 600 "$HOME/.kube/config"
+
+
+      # ---------------------------------------------------
+      # STEP 7
+      # Verify the kubeconfig.
+      # ---------------------------------------------------
+
+      echo ""
+      echo "=============================================="
+      echo " Windows kubeconfig created"
+      echo "=============================================="
+
+      echo ""
+      echo "Kubeconfig:"
+      echo "$HOME/.kube/config"
+
+      echo ""
+      echo "Kubernetes contexts:"
+
+      KUBECONFIG="$HOME/.kube/config" \
+        kubectl config get-contexts
+
+      echo ""
+      echo "Current context:"
+
+      KUBECONFIG="$HOME/.kube/config" \
+        kubectl config current-context || true
+
+      echo ""
+      echo "Windows kubeconfig configuration completed."
+
     EOT
   }
 }
-*/
 
 resource "terraform_data" "install-calico-CNI" {
 
@@ -304,20 +469,11 @@ resource "terraform_data" "worker_join" {
 
         echo "$JOIN_COMMAND" > join_worker.sh
 
-        gcloud compute scp join_worker.sh \
-          k8s-worker-1:/tmp/join_worker.sh \
-          --zone=${var.zone} \
-          --quiet
+        gcloud compute scp join_worker.sh k8s-worker-1:/tmp/join_worker.sh --zone=${var.zone} --quiet
 
-        gcloud compute ssh k8s-worker-1 \
-          --zone=${var.zone} \
-          --quiet \
-          --command="sudo bash /tmp/join_worker.sh"
+        gcloud compute ssh k8s-worker-1 --zone=${var.zone} --quiet --command="sudo bash /tmp/join_worker.sh"
 
-        gcloud compute ssh k8s-worker-1 \
-          --zone=${var.zone} \
-          --quiet \
-          --command="rm -f /tmp/join_worker.sh"
+        gcloud compute ssh k8s-worker-1 --zone=${var.zone} --quiet --command="rm -f /tmp/join_worker.sh"
 
         echo "Worker-1 joined."
       fi
@@ -327,9 +483,7 @@ resource "terraform_data" "worker_join" {
       # Worker 2
       # ---------------------------------
 
-      WORKER2_EXISTS=$(gcloud compute ssh k8s-control-plane \
-        --zone=${var.zone} \
-        --quiet \
+      WORKER2_EXISTS=$(gcloud compute ssh k8s-control-plane --zone=${var.zone} --quiet \
         --command="kubectl get node k8s-worker-2 --ignore-not-found -o name")
 
       if [ "$WORKER2_EXISTS" = "node/k8s-worker-2" ]; then
@@ -341,20 +495,11 @@ resource "terraform_data" "worker_join" {
 
         echo "$JOIN_COMMAND" > join_worker.sh
 
-        gcloud compute scp join_worker.sh \
-          k8s-worker-2:/tmp/join_worker.sh \
-          --zone=${var.zone} \
-          --quiet
+        gcloud compute scp join_worker.sh k8s-worker-2:/tmp/join_worker.sh --zone=${var.zone} --quiet
 
-        gcloud compute ssh k8s-worker-2 \
-          --zone=${var.zone} \
-          --quiet \
-          --command="sudo bash /tmp/join_worker.sh"
+        gcloud compute ssh k8s-worker-2 --zone=${var.zone} --quiet --command="sudo bash /tmp/join_worker.sh"
 
-        gcloud compute ssh k8s-worker-2 \
-          --zone=${var.zone} \
-          --quiet \
-          --command="rm -f /tmp/join_worker.sh"
+        gcloud compute ssh k8s-worker-2 --zone=${var.zone} --quiet --command="rm -f /tmp/join_worker.sh"
 
         echo "Worker-2 joined."
       fi
@@ -403,6 +548,164 @@ resource "terraform_data" "verify_cluster" {
       gcloud compute ssh k8s-control-plane \
         --zone=${var.zone} \
         --command='kubectl cluster-info'
+    EOT
+  }
+}
+
+# ---------------------------------------------------------
+# Deploy Kubernetes application manifests
+# ---------------------------------------------------------
+#
+# This resource runs after:
+#
+#   1. Kubernetes control plane is initialized
+#   2. kubectl is configured on the control plane
+#   3. Calico CNI is installed
+#   4. Worker nodes have joined the cluster
+#
+# Terraform then copies the local k8s/ directory to the
+# control-plane VM and applies all Kubernetes manifests.
+#
+# IMPORTANT:
+# The manifests are applied from the control-plane VM.
+# Therefore this deployment does NOT depend on the Windows
+# kubectl SSH tunnel.
+# ---------------------------------------------------------
+/*resource "kubernetes_secret" "artifact_registry" {
+  metadata {
+    name      = "artifact-registry-secret"
+    namespace = "default"
+  }
+
+  type = "kubernetes.io/dockerconfigjson"
+
+  data = {
+    ".dockerconfigjson" = file("${path.module}/dockerconfigjson")
+  }
+}
+*/
+
+resource "terraform_data" "deploy_k8s_manifests" {
+
+  depends_on = [
+    terraform_data.worker_join
+    #kubernetes_secret.artifact_registry
+  ]
+
+  # Re-run this resource automatically whenever the contents
+  # of a Kubernetes manifest change.
+  triggers_replace = [
+    for file in fileset("${path.module}/k8s", "*.yaml") :
+    filesha256("${path.module}/k8s/${file}")
+  ]
+
+  provisioner "local-exec" {
+
+    interpreter = ["C:\\Program Files\\Git\\bin\\bash.exe", "-c"]
+
+    command = <<-EOT
+      set -e
+
+      echo "=============================================="
+      echo " Deploying Kubernetes Application"
+      echo "=============================================="
+
+      # ---------------------------------------------------
+      # STEP 1
+      # Wait until every Kubernetes node is Ready.
+      # ---------------------------------------------------
+
+      echo ""
+      echo "Waiting for all Kubernetes nodes to become Ready..."
+
+      gcloud compute ssh k8s-control-plane \
+        --zone=${var.zone} \
+        --quiet \
+        --command="kubectl --kubeconfig=/home/${var.ssh_username}/.kube/config wait --for=condition=Ready nodes --all --timeout=10m"
+
+      echo "All Kubernetes nodes are Ready."
+
+      # ---------------------------------------------------
+      # STEP 2
+      # Create a directory on the control plane for the
+      # Kubernetes manifest files.
+      # ---------------------------------------------------
+
+      echo ""
+      echo "Creating manifest directory on control plane..."
+
+      gcloud compute ssh k8s-control-plane \
+        --zone=${var.zone} \
+        --quiet \
+        --command="rm -rf /home/${var.ssh_username}/k8s-manifests && mkdir -p /home/${var.ssh_username}/k8s-manifests"
+
+      # ---------------------------------------------------
+      # STEP 3
+      # Copy the local k8s manifest directory to the
+      # control-plane VM.
+      #
+      # --recurse copies all YAML files and subdirectories.
+      # ---------------------------------------------------
+      #path.module means: "The directory containing the Terraform module where this code is executing."
+
+      echo ""
+      echo "Copying Kubernetes manifests..."
+
+      gcloud compute scp \
+        --recurse \
+        "${path.module}/k8s" \
+        "k8s-control-plane:/home/${var.ssh_username}/k8s-manifests" \
+        --zone=${var.zone} \
+        --quiet
+
+      # ---------------------------------------------------
+      # STEP 4
+      # Fix ownership of the copied files.
+      # ---------------------------------------------------
+
+      gcloud compute ssh k8s-control-plane \
+        --zone=${var.zone} \
+        --quiet \
+        --command="sudo chown -R ${var.ssh_username}:${var.ssh_username} /home/${var.ssh_username}/k8s-manifests"
+
+      # ---------------------------------------------------
+      # STEP 5
+      # Apply all Kubernetes manifests.
+      #
+      # kubectl apply is idempotent:
+      # - New resources are created.
+      # - Existing resources are updated.
+      # - Unchanged resources remain unchanged.
+      # ---------------------------------------------------
+
+      echo ""
+      echo "Applying Kubernetes manifests..."
+
+      gcloud compute ssh k8s-control-plane \
+        --zone=${var.zone} \
+        --quiet \
+        --command="kubectl --kubeconfig=/home/${var.ssh_username}/.kube/config apply -f /home/${var.ssh_username}/k8s-manifests/k8s"
+
+      # ---------------------------------------------------
+      # STEP 6
+      # Display the deployed resources.
+      # ---------------------------------------------------
+
+      echo ""
+      echo "=============================================="
+      echo " Kubernetes Application Resources"
+      echo "=============================================="
+
+      gcloud compute ssh k8s-control-plane \
+        --zone=${var.zone} \
+        --quiet \
+        --command="kubectl --kubeconfig=/home/${var.ssh_username}/.kube/config get pv,pvc,secrets,svc,deploy,pods -o wide"
+
+      echo ""
+      echo "=============================================="
+      echo " Kubernetes Application Deployment Completed"
+      echo "=============================================="
+
     EOT
   }
 }

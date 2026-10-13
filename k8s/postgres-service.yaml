@@ -1,0 +1,21 @@
+#This Service is the network entry point for your PostgreSQL Pod inside the Kubernetes cluster.
+#The Service gives PostgreSQL a stable network identity as postgres:5432 instead of POD IP.
+#port = Service port, targetPort = Pod/container destination port
+#ClusterIP: Make PostgreSQL accessible only from inside the Kubernetes cluster.
+#A NodePort would expose PostgreSQL on a port of your Kubernetes nodes.
+#LoadBalancer is normally used when you want to expose a Service externally. That's useful for something such as your Flask web application, because users need to access your website.
+#ExternalName: This is used when you want a Kubernetes Service name to point to an external DNS name.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+    - protocol: TCP
+      port: 5432
+      targetPort: 5432
+  type: ClusterIP
+  

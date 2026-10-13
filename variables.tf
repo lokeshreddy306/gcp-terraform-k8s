@@ -38,3 +38,9 @@ variable "ssh_username" {
   type        = string
   default     = "lokeshasi2604_gmail_com"
 }
+
+variable "kubeconfig_path" {
+  description = "Path to the Kubernetes kubeconfig file"
+  type        = string
+  default     = "~/.kube/config"
+}

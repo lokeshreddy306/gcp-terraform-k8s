@@ -31,7 +31,7 @@ resource "google_compute_firewall" "allow_internal" {
     protocol = "udp"
   }
   allow {
-    protocol = "icmp"
+    protocol = "all"
   }
   source_ranges = ["10.10.0.0/24"]
 }

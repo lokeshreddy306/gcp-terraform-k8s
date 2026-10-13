@@ -20,3 +20,6 @@ crash.*.log
 .env
 *.pem
 *.key
+
+artifact-reader-key.json
+dockerconfigjson

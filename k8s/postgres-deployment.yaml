@@ -1,0 +1,54 @@
+
+#We're setting environment variables inside the PostgreSQL container.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: postgres
+spec: 
+#describes the Deployment specs.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+  # Provides the data for creating the pod
+    metadata:
+      labels: 
+        app: postgres
+    spec:
+    #describes the container that the Deployment creates.
+      containers:
+       - name: postgres
+         image: postgres:16
+         ports:
+          - containerPort: 5432
+          #containerPort doesn't expose PostgreSQL outside the cluster
+         env:
+          - name: POSTGRES_USER
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: POSTGRES_USER
+
+          - name: POSTGRES_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: POSTGRES_PASSWORD
+        
+          - name: POSTGRES_DB
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: POSTGRES_DB
+         volumeMounts:
+          - name: postgres-storage
+            mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: postgres-storage
+          persistentVolumeClaim: 
+            claimName: postgres-pvc
+
+
+
