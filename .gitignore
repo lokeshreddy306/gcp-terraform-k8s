@@ -1,0 +1,19 @@
+# Terraform provider downloads and working directory
+.terraform/
+
+# Terraform state
+*.tfstate
+*.tfstate.*
+
+# Terraform variables and secrets
+*.tfvars
+*.tfvars.json
+
+# Terraform crash logs
+crash.log
+crash.*.log
+
+# Credentials
+.env
+*.pem
+*.key
