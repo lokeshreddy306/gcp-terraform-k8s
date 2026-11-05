@@ -3,5 +3,6 @@ kind: Namespace
 
 metadata:
   name: myprofile
+  namespace: myprofile
   labels:
     app.kubernetes.io/part-of: portfolio-project

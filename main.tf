@@ -5,7 +5,7 @@ resource "google_container_cluster" "portfolio" {
 
   enable_autopilot = true
 
-  deletion_protection = true
+  deletion_protection = false
 }
 
 
@@ -55,6 +55,10 @@ resource "terraform_data" "deploy_k8s_manifest_files" {
       Write-Host "Deploying PostgreSQL..."
       kubectl apply -f "${path.module}/Kube-manifest-files/postgres-deploy.yaml"
       if ($LASTEXITCODE -ne 0) { throw "PostgreSQL deployment failed." }
+
+      Write-Host "Deploying PostgreSQL Service"
+      kubectl apply -f "${path.module}/Kube-manifest-files/postgres-service.yaml"
+      if ($LASTEXITCODE -ne 0) { throw "PostgreSQL Service failed." }
 
       kubectl rollout status deployment/postgres -n myprofile --timeout=300s
       if ($LASTEXITCODE -ne 0) { throw "PostgreSQL did not become ready." }

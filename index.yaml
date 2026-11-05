@@ -1,0 +1,14 @@
+apiVersion: v1
+entries:
+  portfolio-chart:
+  - apiVersion: v2
+    appVersion: 1.16.0
+    created: "2026-11-05T23:18:10.9265032+05:30"
+    description: A Helm chart for Kubernetes
+    digest: ff4e4f93a10d8bc63c5d8ed077f5359366dbbe230c0422a132aed5cebc2c50a6
+    name: portfolio-chart
+    type: application
+    urls:
+    - portfolio-chart-0.1.0.tgz
+    version: 0.1.0
+generated: "2026-11-05T23:18:10.9224869+05:30"
